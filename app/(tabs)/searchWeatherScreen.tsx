@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, Button, Text, FlatList } from 'react-native';
+import { View, TextInput, Button, Text, FlatList, StyleSheet } from 'react-native';
 import { createTable, saveLocation, getLocations, getLocationCount, deleteLocation } from '@/database/database';
 
-  const SearchWeatherScreen = () => {
+const SearchWeatherScreen = () => {
   const [city, setCity] = useState('');
   const [weatherData, setWeatherData] = useState<any>(null);
   const [locations, setLocations] = useState<any>([]);
@@ -10,10 +10,11 @@ import { createTable, saveLocation, getLocations, getLocationCount, deleteLocati
 
   useEffect(() => {
     const initializeDB = async () => {
-       createTable();
-       fetchLocations();
-       fetchLocationCount(); 
+      await createTable();
+      await fetchLocations();
+      await fetchLocationCount();
     };
+    console.log('Initializing database');
     initializeDB();
   }, []);
 
@@ -24,18 +25,32 @@ import { createTable, saveLocation, getLocations, getLocationCount, deleteLocati
     }
 
     try {
-      const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.405&current_weather=true`
+      // Step 1: Get latitude and longitude from city name
+      const geoResponse = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${city}&count=1&language=en&format=json`
       );
-      const data = await response.json();
+      const geoData = await geoResponse.json();
 
-      if (data?.current_weather) {
-        setWeatherData(data.current_weather);
+      if (!geoData?.results || geoData.results.length === 0) {
+        alert('City not found. Please try again.');
+        return;
+      }
+
+      const { latitude, longitude } = geoData.results[0];
+
+      // Step 2: Fetch weather data using lat and lon
+      const weatherResponse = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`
+      );
+      const weatherData = await weatherResponse.json();
+
+      if (weatherData?.current_weather) {
+        setWeatherData(weatherData.current_weather);
       } else {
         alert('Weather data not available.');
       }
     } catch (error) {
-      console.error('Weather API error:', error);
+      console.error('Error fetching data:', error);
       alert('Failed to fetch weather data.');
     }
   };
@@ -47,9 +62,10 @@ import { createTable, saveLocation, getLocations, getLocationCount, deleteLocati
     }
 
     try {
-       saveLocation(city);
-       fetchLocations();
-       fetchLocationCount();
+      await saveLocation(city);
+      fetchLocations();
+      fetchLocationCount();
+      alert('Location saved successfully.');
     } catch (error) {
       console.error('Save location error:', error);
     }
@@ -57,61 +73,82 @@ import { createTable, saveLocation, getLocations, getLocationCount, deleteLocati
 
   const fetchLocations = async () => {
     try {
-      const savedLocations =  getLocations();
+      const savedLocations = await getLocations();
       setLocations(savedLocations);
     } catch (error) {
       console.error('Fetch locations error:', error);
     }
   };
 
-const fetchLocationCount = async () => {
-  try {
-    const countString = await getLocationCount();
-    setLocationCount(countString);
-  } catch (error) {
-    console.error('Fetch count error:', error);
-  }
-};
+  const fetchLocationCount = async () => {
+    try {
+      const countString = await getLocationCount();
+      setLocationCount(countString);
+    } catch (error) {
+      console.error('Fetch count error:', error);
+    }
+  };
 
   return (
-    <View style={{ padding: 20 }}>
+    <View style={styles.container}>
       <TextInput
-        style={{ height: 40, borderColor: 'gray', borderWidth: 1, marginBottom: 10 }}
+        style={styles.input}
         placeholder="Enter city name"
+        placeholderTextColor="gray"
         value={city}
         onChangeText={setCity}
       />
       <Button title="Search Weather" onPress={getWeatherData} />
 
       {weatherData && (
-        <View style={{ marginTop: 20 }}>
-          <Text>Weather Information:</Text>
-          <Text>Temperature: {weatherData.temperature}°C</Text>
-          <Text>Wind Speed: {weatherData.windspeed} km/h</Text>
-          <Text>Weather Code: {weatherData.weathercode}</Text>
+        <View style={styles.weatherInfo}>
+          <Text style={styles.text}>Weather Information:</Text>
+          <Text style={styles.text}>Temperature: {weatherData.temperature}°C</Text>
+          <Text style={styles.text}>Wind Speed: {weatherData.windspeed} km/h</Text>
+          <Text style={styles.text}>Weather Code: {weatherData.weathercode}</Text>
         </View>
       )}
 
-      <Button
-        title="Save Location"
-        onPress={handleSaveLocation}
-        disabled={locationCount >= 4}
-      />
+      <View style={{ marginTop: 20 }}>
+        <Button
+          title="Save Location"
+          onPress={handleSaveLocation}
+          disabled={locationCount >= 4 || city.trim() === ''}
+        />
+      </View>
 
       {locationCount >= 4 && (
-        <Text style={{ color: 'red', marginTop: 10 }}>
+        <Text style={styles.errorText}>
           You can only save up to 4 locations.
         </Text>
       )}
-
-      <FlatList
-        data={locations}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => <Text>{item.name}</Text>}
-        style={{ marginTop: 20 }}
-      />
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: 'white', // Set background color to white
+  },
+  input: {
+    height: 40,
+    borderColor: 'gray',
+    borderWidth: 1,
+    marginBottom: 10,
+    color: 'black', // Set text color to black
+  },
+  weatherInfo: {
+    marginTop: 20,
+  },
+  text: {
+    color: 'black', // Set text color to black
+  },
+  errorText: {
+    color: 'red',
+    marginTop: 10,
+  },
+});
 
 export default SearchWeatherScreen;
